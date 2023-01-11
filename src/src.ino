@@ -21,26 +21,26 @@ byte rowPins[ROWS] = {9, 8, 7, 6};
 byte colPins[COLS] = {5, 4, 3, 2};
 Keypad kpd = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-unsigned long loopCount;
-unsigned long startTime;
-
 // LED STRIPS
 #define LA_LEN 31
 #define LA_WID 3
 #define LA_TOT (LA_LEN * LA_WID)
 #define PIN_LED_L 10
 #define PIN_LED_R 11
+#define Tc 15 // Color cycle period, seconds
+#define Tb 8  // Brightness cycle period, seconds
+
+static const uint32_t white = Adafruit_NeoPixel::Color(255, 255, 255);
+static const uint32_t v_yellow = 0xB3FF00;
+static const uint32_t v_green = 0x02EF00;
 
 Adafruit_NeoPixel stripLeft =
     Adafruit_NeoPixel(LA_LEN * LA_WID, PIN_LED_L, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel stripRight =
     Adafruit_NeoPixel(LA_LEN * LA_WID, PIN_LED_R, NEO_GRB + NEO_KHZ800);
 
+// SOUNDBOARD
 // Adafruit_Soundboard sfx = Adafruit_Soundboard(&Serial1, NULL, SFX_RST);
-
-static const uint32_t white = Adafruit_NeoPixel::Color(255, 255, 255);
-static const uint32_t v_yellow = 0xB3FF00;
-static const uint32_t v_green = 0x02EF00;
 
 // CUSTOM FUNCTIONS
 void fillColumn(Adafruit_NeoPixel *s, int column, uint32_t color) {
@@ -69,22 +69,26 @@ uint32_t multiplyColor(double m, uint32_t c1) {
 uint32_t addWithOpacity(uint32_t c1, double a1, uint32_t c2, double a2) {
   return addColors(multiplyColor(a1, c1), multiplyColor(a2, c2));
 }
-#define T 15
-#define Tb 8
-static uint32_t frames = 0;
+
+// DEBUGGING & WATCHDOG MEMORY
+static long loops = 0;
+static unsigned long toli = 0; // time of last interaction
+inline void settoli() { toli = millis(); }
+inline unsigned long tsli() { return millis() - toli; }
 
 // SETUP
 void setup() {
   // system initializations
   Serial.begin(SBAUD);
-  randomSeed(analogRead(A0) + micros()); // try to get a truly random seed
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
+  randomSeed(analogRead(A7) + micros()); // try to get a truly random seed
 
   // object initializations
   stripLeft.begin();
   stripRight.begin();
   stripLeft.clear();
   stripRight.clear();
-
   // brightness values are scaled later
   stripLeft.setBrightness(255);
   stripRight.setBrightness(255);
@@ -97,7 +101,7 @@ void loop() {
   for (int n = 0; n < LA_LEN; ++n) {
     // aprx pulse thickness, eg, 11 pixels:
     double phi = -1 * (PI)*n / 11;
-    double A = 0.5 + 0.5 * sin(2.0 * PI / T * millis() / 1000.0 + phi);
+    double A = 0.5 + 0.5 * sin(2.0 * PI / Tc * millis() / 1000.0 + phi);
 
     fillColumn(
         &stripLeft, n,
@@ -111,8 +115,14 @@ void loop() {
   stripLeft.show();
   stripRight.show();
 
-  frames++;
-  Serial.print("FPS: ");
-  Serial.print(1000 * frames / millis());
-  Serial.println();
+  // Serial.print("FPS: ");
+  // Serial.print(1000 * loops / millis());
+  // Serial.println();
+
+  char k = kpd.getKey();
+  if (k) {
+    Serial.println(k);
+  }
+
+  loops++;
 }
