@@ -7,13 +7,16 @@
 #include <WString.h>
 
 typedef uint32_t acolor;
-// SYSTEM DEFINITIONS & PINS
+// SYSTEM DEFINITIONS
 #define DEBUGGING true
-#define DEBUG_PUSH_RATE 1200 // ms
+#define DEBUG_PUSH_RATE 2000 // ms
 #define SBAUD 9600
-#define PIN_SFX_RST A0
 
 // KEYPAD OBJECT
+#define PIN_SFX_RST A0
+#define PINS_RESV_KPD (2 - 9) // don't use this range
+#define KPD_TIMEOUT 15000     // user input timeout, ms
+#define ILEN 3                // input length, in characters
 const byte ROWS = 4;
 const byte COLS = 4;
 char keys[ROWS][COLS] = {{'1', '2', '3', 'A'},
@@ -23,7 +26,8 @@ char keys[ROWS][COLS] = {{'1', '2', '3', 'A'},
 byte rowPins[ROWS] = {9, 8, 7, 6};
 byte colPins[COLS] = {5, 4, 3, 2};
 Keypad kpd = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
-
+char inputStr[(ILEN + 1)];
+unsigned cPtr = 0; // character iterator
 // LED STRIPS
 #define SMALL_L (19 * 3)       // number of lights in the small left strip
 #define SMALL_R ((17 * 3) + 3) // number of lights in the small(er) right strip
@@ -78,7 +82,7 @@ acolor addWithOpacity(acolor c1, double a1, acolor c2, double a2) {
   return addColors(multiplyColor(a1, c1), multiplyColor(a2, c2));
 }
 
-// CONTROLS, DEBUGGING, & WATCHDOG MEMORY
+// CONTROLS, DEBUGGING, UTILITIES, MEMORY, & WATCHDOG
 static unsigned long loops = 0;
 static unsigned long toli = 0; // time of last interaction
 inline void set_toli() { toli = millis(); }
@@ -86,16 +90,19 @@ inline unsigned long tsli() { return millis() - toli; }
 static unsigned long tolp = 0; // time of last push
 inline void set_tolp() { tolp = millis(); }
 inline unsigned long tslp() { return millis() - tolp; }
+inline boolean isNum(char c) { return c >= '0' && c <= '9'; }
 
 // SETUP
 void setup() {
   // system initializations
   if (DEBUGGING)
     Serial.begin(SBAUD);
+
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
-
   randomSeed(analogRead(A7) + micros()); // try to get a truly random seed
+
+  sfx.reset();
 
   // object initializations
   stripLeft.begin();
@@ -107,13 +114,15 @@ void setup() {
   stripRight.setBrightness(0xFF);
 
   set_toli();
+  yield();
 }
 
 // LOOP
 static unsigned long renders = 0;
-static int n = 0; // nth column of pixels in large strip
-
+static int n = 0;      // nth column of pixels in large strip
 static double b = 0.0; // brightness
+
+static char k = NO_KEY;
 
 void loop() {
   // aprx pulse thickness, eg, 11 pixels:
@@ -146,12 +155,25 @@ void loop() {
     b = 0.05 + 0.08 * (0.5 + 0.5 * sin(2.0 * PI / Tb * millis() / 1000.0));
   }
 
-  char k = kpd.getKey();
-  if (k) {
+  if ((k = kpd.getKey()) != NO_KEY) {
+    set_toli();
+    if (isNum(k)) {
+      inputStr[cPtr % ILEN] = k;
+    } else if (k == '*') {
+      // reset input buffer and stop sound
+      cPtr = 0;
+      strCpy(inputStr, "000");
+      sfx.stop();
+      sfx.
+    } else if (k == '#') {
+      // convert string and play sound
+      sfx.playTrack(String(inputStr) + ".mp3");
+    }
     Serial.println(k);
   }
 
-  if (!tslp() || DEBUGGING && (tslp() >= DEBUG_PUSH_RATE)) {
+  // serial LED debugger
+  if (!tslp() || (DEBUGGING && (tslp() >= DEBUG_PUSH_RATE))) {
     Serial.print("Scans: ");
     Serial.print(1000UL * loops / millis());
     Serial.print("/s, Display: "); // partial FPS average
@@ -159,6 +181,11 @@ void loop() {
     Serial.print(" FPS");
     Serial.println();
     set_tolp();
+  }
+  // Watchdog
+  if (tsli() > KPD_TIMEOUT) {
+    strcpy(inputStr, "000");
+    cPtr = 0;
   }
   loops++;
 }
