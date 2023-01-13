@@ -9,8 +9,10 @@
 typedef uint32_t acolor;
 // SYSTEM DEFINITIONS
 #define DEBUGGING true
+#undef DEBUGGING
 #define DEBUG_PUSH_RATE 2000 // ms
-#define SBAUD 9600
+#define SBAUD 115200
+#define SOFTWAREBAUD 9600
 
 // KEYPAD OBJECT
 #define PIN_SFX_RST A0
@@ -32,13 +34,12 @@ unsigned cPtr = 0; // character iterator
 #define SMALL_L (19 * 3)       // number of lights in the small left strip
 #define SMALL_R ((17 * 3) + 3) // number of lights in the small(er) right strip
 #define LA_LEN 31
-#define LA_LEN_S 19
 #define LA_WID 3
 #define LA_TOT (LA_LEN * LA_WID)
 #define PIN_LED_L 10
 #define PIN_LED_R 11
-#define Tc 15 // Color cycle period, seconds
-#define Tb 8  // Brightness cycle period, seconds
+#define Tc 15.0 // Color cycle period, seconds
+#define Tb 8.0  // Brightness cycle period, seconds
 
 static const acolor white = Adafruit_NeoPixel::Color(255, 255, 255);
 static const acolor v_yellow = 0xB3FF00;
@@ -50,7 +51,12 @@ Adafruit_NeoPixel stripRight = Adafruit_NeoPixel(
     LA_LEN * LA_WID + SMALL_R, PIN_LED_R, NEO_GRB + NEO_KHZ800);
 
 // SOUNDBOARD
-Adafruit_Soundboard sfx = Adafruit_Soundboard(&Serial, NULL, PIN_SFX_RST);
+// only pins 2 and 3 support hardware edge interrupts
+#define SFX_TX 11
+#define SFX_RX 10 // pin must support CHANGE interrupts
+#define UG LOW    // reminder: connect UG pin to ground physically!
+SoftwareSerial ss = SoftwareSerial(SFX_TX, SFX_RX);
+Adafruit_Soundboard sfx = Adafruit_Soundboard(&ss, NULL, PIN_SFX_RST);
 
 // CUSTOM FUNCTIONS
 void fillColumn(Adafruit_NeoPixel *s, int column, acolor color,
@@ -90,19 +96,29 @@ inline unsigned long tsli() { return millis() - toli; }
 static unsigned long tolp = 0; // time of last push
 inline void set_tolp() { tolp = millis(); }
 inline unsigned long tslp() { return millis() - tolp; }
-inline boolean isNum(char c) { return c >= '0' && c <= '9'; }
 
 // SETUP
 void setup() {
-  // system initializations
-  if (DEBUGGING)
-    Serial.begin(SBAUD);
+// system initializations
+#ifdef DEBUGGING
+  Serial.begin(SBAUD);
+  while (!Serial)
+    ; // wait for connection when debugging
+#endif
+
+  ss.begin(SOFTWAREBAUD); // must be 9600 baud
 
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
-  randomSeed(analogRead(A7) + micros()); // try to get a truly random seed
 
-  sfx.reset();
+  if (!sfx.reset()) {
+#ifdef DEBUGGING
+    Serial.println("NOT FOUND");
+    while (true)
+      ;
+#endif
+  }
+  sfx.volUp();
 
   // object initializations
   stripLeft.begin();
@@ -157,23 +173,35 @@ void loop() {
 
   if ((k = kpd.getKey()) != NO_KEY) {
     set_toli();
-    if (isNum(k)) {
+
+    if (isdigit(k)) {
       inputStr[cPtr % ILEN] = k;
     } else if (k == '*') {
       // reset input buffer and stop sound
       cPtr = 0;
-      strCpy(inputStr, "000");
+      strcpy(inputStr, "---");
       sfx.stop();
-      sfx.
     } else if (k == '#') {
+      // check if it is in range? nah
       // convert string and play sound
-      sfx.playTrack(String(inputStr) + ".mp3");
+      char tmp[8];
+      strcpy(tmp, inputStr);
+      strcat(tmp, ".mp3");
+      sfx.playTrack(tmp);
     }
-    Serial.println(k);
   }
 
-  // serial LED debugger
-  if (!tslp() || (DEBUGGING && (tslp() >= DEBUG_PUSH_RATE))) {
+  // Watchdog
+  if (tsli() >= KPD_TIMEOUT) {
+    strcpy(inputStr, "---");
+    cPtr = 0;
+  }
+
+  loops++; // increment loop counter
+
+#ifdef DEBUGGING
+  // serial debugger for LED strips
+  if (!tslp() || tslp() >= DEBUG_PUSH_RATE) {
     Serial.print("Scans: ");
     Serial.print(1000UL * loops / millis());
     Serial.print("/s, Display: "); // partial FPS average
@@ -182,10 +210,5 @@ void loop() {
     Serial.println();
     set_tolp();
   }
-  // Watchdog
-  if (tsli() > KPD_TIMEOUT) {
-    strcpy(inputStr, "000");
-    cPtr = 0;
-  }
-  loops++;
+#endif
 }
