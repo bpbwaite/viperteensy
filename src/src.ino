@@ -5,14 +5,14 @@
 #include <Keypad.h>
 #include <SoftwareSerial.h>
 #include <WString.h>
-
+// todo: green ripples when running ultimate sound effect
 // unused pins:
 // D12
-// A4 thru A7
+// A1, A4 thru A6
 typedef uint32_t acolor;
 // SYSTEM DEFINITIONS
 // current debug usage: 179 bytes
-#define DEBUGGING true
+// #define DEBUGGING true
 #define DEBUG_PUSH_RATE 1100 // T, ms
 #define SBAUD 115200
 #define SOFTWAREBAUD 9600
@@ -24,20 +24,25 @@ typedef uint32_t acolor;
 #define ILEN 3                // input length, in characters
 static const byte ROWS = 4;   // make const bytes if memory allows
 static const byte COLS = 4;   // make const bytes if memory allows
-
-static const char keys[ROWS][COLS] = {{'1', '2', '3', 'A'},
-                                      {'4', '5', '6', 'B'},
-                                      {'7', '8', '9', 'C'},
-                                      {'*', '0', '#', 'D'}};
+const char keys[ROWS][COLS] = {{'1', '2', '3', 'A'},
+                               {'4', '5', '6', 'B'},
+                               {'7', '8', '9', 'C'},
+                               {'*', '0', '#', 'D'}};
 byte rowPins[ROWS] = {9, 8, 7, 6};
 byte colPins[COLS] = {5, 4, 3, 2};
 Keypad kpd = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 static char k = NO_KEY;
 char inputStr[(ILEN + 1)];
 char inputLast[(ILEN + 1)];
-char *fivezeros = "00000";
-char *fext = "OGG";
+static const char fivezeros[6] = "00000";
+static const char fext[4] = "OGG";
 unsigned cPtr = 0; // character iterator
+// special inputs and handlers
+static const char toggleLED[4] = "999";
+static boolean isLit = true;
+static const char sexnumber[4] = "696";
+static const char angry[4] = "777";
+
 // LED STRIPS
 #define SMALL_L (19 * 3)       // number of lights in the small left strip
 #define SMALL_R ((17 * 3) + 3) // number of lights in the small(er) right strip
@@ -52,7 +57,8 @@ unsigned cPtr = 0; // character iterator
 #define white 0xFFFFFF // Adafruit_NeoPixel::Color(255, 255, 255);
 #define v_yellow 0xB3FF02
 #define v_green 0x02EF00
-// optimized to avoid using 1188 bytes ram for pixels
+#define v_red 0xFF0505
+// using 1188 bytes ram for pixels
 Adafruit_NeoPixel pixelmem = Adafruit_NeoPixel(LA_LEN * LA_WID + SMALL_L,
                                                PIN_LED_L, NEO_GRB + NEO_KHZ800);
 
@@ -106,11 +112,60 @@ inline unsigned long tslp() { return millis() - tolp; }
 static unsigned scans = 0;  // kpd scans in the current debug push cycle
 static unsigned n = 0;      // nth column of pixels in large strip
 static double bscale = 0.0; // brightness
-double phi, A, B;
+static double phi, A, B;
 char fname[12] = "";
 void resetInputStr() { strcpy(inputStr, "---"); }
 
+void ultStrobe() {
+  for (int j = 0; j < 10; ++j) {
+    if (!isLit)
+      return;
+
+    pixelmem.setPin(PIN_LED_L);
+    pixelmem.clear();
+    pixelmem.show();
+    pixelmem.setPin(PIN_LED_R);
+    pixelmem.clear();
+    pixelmem.show();
+    delay(100);
+    pixelmem.setPin(PIN_LED_L);
+    pixelmem.fill(v_green);
+    pixelmem.show();
+    pixelmem.setPin(PIN_LED_R);
+    pixelmem.fill(v_green);
+    pixelmem.show();
+    delay(200);
+  }
+}
+void goAngry() {
+  if (!isLit)
+    return;
+
+  pixelmem.setPin(PIN_LED_L);
+  pixelmem.fill(v_red);
+  pixelmem.show();
+  pixelmem.setPin(PIN_LED_R);
+  pixelmem.fill(v_red);
+  pixelmem.show();
+  delay(2900);
+}
+void playRandom() {
+  static const short rs[] = {94,  95,  96,  273, 274, 275, 276, 277, 278,
+                             279, 280, 281, 282, 283, 284, 285, 286, 287,
+                             288, 305, 306, 315, 316, 349, 350, 351};
+  short r = rs[random(3, 25)]; // only works with 3 digit for now
+  strcpy(fname, fivezeros);
+  strcat(fname, String(r).c_str());
+  strcat(fname, fext);
+
+  sfx.playTrack(fname);
+}
+inline void delayRandom() { delay(random(2000, 7000)); }
+
 void kpd_scan_callback() {
+  static const char spl1[] = "388";
+  static const char spl2[] = "393";
+
   ++scans;
   if ((k = kpd.getKey()) != NO_KEY) {
     set_toli();
@@ -124,13 +179,23 @@ void kpd_scan_callback() {
       resetInputStr();
       sfx.stop();
     } else if (k == '#') {
-      // check or make input valid,
-      // convert string and play sound
+      // in the future, convert the input to an int and then back when needed,
+      // this is too hard check or make input valid, convert string and play
+
+      // sound
       while (inputStr[2] == '-') {
         inputStr[2] = inputStr[1];
         inputStr[1] = inputStr[0];
         inputStr[0] = '0';
       }
+      // special triggers:
+      if (!strcmp(inputStr, sexnumber))
+        while ((k = kpd.getKey()) != '*') {
+          playRandom();
+          delayRandom();
+        }
+      if (!strcmp(inputStr, toggleLED))
+        isLit = !isLit;
 
       if (!atoi(inputStr)) {
         strcpy(inputStr, inputLast);
@@ -141,8 +206,15 @@ void kpd_scan_callback() {
       strcat(fname, fext);
 
       if (!sfx.playTrack(fname)) {
-        delay(100); // sometimes its not ready
+        delay(102); // sometimes its not ready
         sfx.playTrack(fname);
+      }
+      // special lighting effects
+      if (!strcmp(inputStr, spl1) || !strcmp(inputStr, spl2)) {
+        ultStrobe();
+      }
+      if (!strcmp(inputStr, angry)) {
+        goAngry();
       }
       resetInputStr();
       cPtr = 0; // immediately ready for next
@@ -157,12 +229,12 @@ void kpd_scan_callback() {
 
 // SETUP
 void setup() {
-
+  yield(); // may reboot as programmer triggers reset
 // system initializations
 #ifdef DEBUGGING
   Serial.begin(SBAUD);
-  while (!Serial)
-    ; // wait for connection when debugging
+  while (!Serial && millis() < KPD_TIMEOUT)
+    ; // wait for connection when debugging, unless there isn't one
   Serial.println(F("Entering Setup, Serial Interface Connected"));
 #endif
 
@@ -170,10 +242,8 @@ void setup() {
 
   if (!sfx.reset()) {
 #ifdef DEBUGGING
-    Serial.println(F("NOT FOUND"));
+    Serial.println(F("NO SOUNDBOARD FOUND"));
 #endif
-    while (true)
-      ;
   }
 #ifdef DEBUGGING
   Serial.println(F("Soundboard Connected"));
@@ -190,12 +260,13 @@ void setup() {
   Serial.println();
 #endif
 
-  set_toli();
-
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
+  pinMode(A7, INPUT);
+  randomSeed(micros() + analogRead(A7)); // use noise
   resetInputStr();
 
+  set_toli();
   yield();
 }
 
@@ -244,7 +315,8 @@ void loop() {
           SMALL_R);
     }
   }
-
+  if (!isLit)
+    pixelmem.clear();
   pixelmem.show(); // write to port
 
   bscale = 0.05 + 0.08 * (0.5 + 0.5 * sin(2.0 * PI / Tb * millis() / 1000.0));
