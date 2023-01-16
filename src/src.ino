@@ -9,10 +9,10 @@
 // unused pins:
 // D12
 // A1, A4 thru A6
-typedef uint32_t acolor;
+
 // SYSTEM DEFINITIONS
-// current debug usage: 179 bytes
-// #define DEBUGGING true
+
+#define DEBUGGING true
 #define DEBUG_PUSH_RATE 1100 // T, ms
 #define SBAUD 115200
 #define SOFTWAREBAUD 9600
@@ -37,11 +37,13 @@ char inputLast[(ILEN + 1)];
 static const char fivezeros[6] = "00000";
 static const char fext[4] = "OGG";
 unsigned cPtr = 0; // character iterator
-// special inputs and handlers
-static const char toggleLED[4] = "999";
+// special inputs and their handlers
+static const uint16_t toggleLED = 999;
 static boolean isLit = true;
-static const char sexnumber[4] = "696";
-static const char angry[4] = "777";
+static const uint16_t pain = 696;
+static const uint16_t angry = 777;
+static const uint16_t spl1 = 388;
+static const uint16_t spl2 = 393;
 
 // LED STRIPS
 #define SMALL_L (19 * 3)       // number of lights in the small left strip
@@ -64,6 +66,7 @@ Adafruit_NeoPixel pixelmem = Adafruit_NeoPixel(LA_LEN * LA_WID + SMALL_L,
 
 // SOUNDBOARD
 // only pins 2 and 3 support hardware edge interrupts
+#define SOUND_MAX 400
 #define SFX_TX 11
 #define SFX_RX 10 // pin must support CHANGE interrupts
 #define UG LOW    // reminder: connect UG pin to ground physically!
@@ -71,7 +74,7 @@ SoftwareSerial ss = SoftwareSerial(SFX_TX, SFX_RX);
 Adafruit_Soundboard sfx = Adafruit_Soundboard(&ss, NULL, PIN_SFX_RST);
 
 // CUSTOM FUNCTIONS
-void fillColumn(Adafruit_NeoPixel *s, int column, acolor color,
+void fillColumn(Adafruit_NeoPixel *s, int column, uint32_t color,
                 int offset = 0) {
   // assumes columns have 3 pixels
   s->setPixelColor(offset + column, color);
@@ -82,13 +85,13 @@ uint32_t clipByte(uint32_t x) {
   x = (x >= 255) ? 255 : x;
   return x;
 }
-acolor addColors(acolor c1, acolor c2) {
+uint32_t addColors(uint32_t c1, uint32_t c2) {
   return clipByte(((c1 & 0x000000FF) + (c2 & 0x000000FF)) >> 0) << 0 |
          clipByte(((c1 & 0x0000FF00) + (c2 & 0x0000FF00)) >> 8) << 8 |
          clipByte(((c1 & 0x00FF0000) + (c2 & 0x00FF0000)) >> 16) << 16 |
          clipByte(((c1 & 0xFF000000) + (c2 & 0xFF000000)) >> 24) << 24;
 }
-acolor multiplyColor(double m, acolor c1) {
+uint32_t multiplyColor(double m, uint32_t c1) {
   uint32_t buf = 0;
   buf |= clipByte(m * ((c1 & 0x000000FF) >> 0)) << 0;
   buf |= clipByte(m * ((c1 & 0x0000FF00) >> 8)) << 8;
@@ -96,7 +99,7 @@ acolor multiplyColor(double m, acolor c1) {
   buf |= clipByte(m * ((c1 & 0xFF000000) >> 24)) << 24;
   return buf;
 }
-acolor addWithOpacity(acolor c1, double a1, acolor c2, double a2) {
+uint32_t addWithOpacity(uint32_t c1, double a1, uint32_t c2, double a2) {
   return addColors(multiplyColor(a1, c1), multiplyColor(a2, c2));
 }
 
@@ -147,24 +150,87 @@ void goAngry() {
   pixelmem.setPin(PIN_LED_R);
   pixelmem.fill(v_red);
   pixelmem.show();
-  delay(2900);
+
+  while ((k = kpd.getKey()) == NO_KEY)
+    ;
 }
+
+void playAnyType(uint16_t d) {
+  static char d_chars[4];
+  static char str_buf[4];
+  static char single_zero[2] = "0";
+  if (d <= 0 || d > 999)
+    return;
+
+  if (d <= SOUND_MAX) {
+
+    itoa(d, d_chars, 10);
+
+    while (strlen(d_chars) < ILEN) {
+      strcpy(str_buf, single_zero);
+      strcat(str_buf, d_chars);
+      strcpy(d_chars, str_buf);
+    }
+    strcpy(fname, fivezeros);
+    strcat(fname, d_chars);
+    strcat(fname, fext);
+
+#ifdef DEBUGGING
+    Serial.print(F("Requesting file: "));
+    Serial.println(fname);
+#endif
+
+    // future version: monitor activity LED to determine if writable
+    if (!sfx.playTrack(fname)) {
+      delay(102); // sometimes its not ready
+      sfx.playTrack(fname);
+    }
+  }
+
+  special_triggers(d);
+}
+void dashesToZeros(char *valstr) {
+  // convert invalid chars to zero. modifies the original
+  while (!isdigit(valstr[2])) {
+    valstr[2] = valstr[1];
+    valstr[1] = valstr[0];
+    valstr[0] = '0';
+  }
+}
+void playAnyType(char *valstr) {
+  dashesToZeros(valstr);
+  // call the other function prototype
+  playAnyType(atoi(valstr));
+}
+
 void playRandom() {
   static const short rs[] = {94,  95,  96,  273, 274, 275, 276, 277, 278,
                              279, 280, 281, 282, 283, 284, 285, 286, 287,
                              288, 305, 306, 315, 316, 349, 350, 351};
-  short r = rs[random(3, 25)]; // only works with 3 digit for now
-  strcpy(fname, fivezeros);
-  strcat(fname, String(r).c_str());
-  strcat(fname, fext);
 
-  sfx.playTrack(fname);
+  playAnyType(rs[random(0, 25)]);
 }
-inline void delayRandom() { delay(random(2000, 7000)); }
-
+void special_triggers(uint16_t d) {
+  // special triggers
+  if (d == pain) {
+    randomSeed(micros() + analogRead(A7)); // use noise
+    toli = -1;                             // override toli
+    while ((k = kpd.getKey()) == NO_KEY) {
+      if (tsli() > random(1300, 7000)) {
+        playRandom();
+        set_toli();
+      }
+    }
+  }
+  if (d == toggleLED)
+    isLit = !isLit;
+  // special lighting effects
+  if ((d == spl1) || (d == spl2))
+    ultStrobe();
+  if (d == angry)
+    goAngry();
+}
 void kpd_scan_callback() {
-  static const char spl1[] = "388";
-  static const char spl2[] = "393";
 
   ++scans;
   if ((k = kpd.getKey()) != NO_KEY) {
@@ -179,57 +245,25 @@ void kpd_scan_callback() {
       resetInputStr();
       sfx.stop();
     } else if (k == '#') {
-      // in the future, convert the input to an int and then back when needed,
-      // this is too hard check or make input valid, convert string and play
 
-      // sound
-      while (inputStr[2] == '-') {
-        inputStr[2] = inputStr[1];
-        inputStr[1] = inputStr[0];
-        inputStr[0] = '0';
-      }
-      // special triggers:
-      if (!strcmp(inputStr, sexnumber))
-        while ((k = kpd.getKey()) != '*') {
-          playRandom();
-          delayRandom();
-        }
-      if (!strcmp(inputStr, toggleLED))
-        isLit = !isLit;
-
+      dashesToZeros(inputStr);
+      // remeber last input:
       if (!atoi(inputStr)) {
         strcpy(inputStr, inputLast);
       } else
         strcpy(inputLast, inputStr);
-      strcpy(fname, fivezeros);
-      strcat(fname, inputStr);
-      strcat(fname, fext);
 
-      if (!sfx.playTrack(fname)) {
-        delay(102); // sometimes its not ready
-        sfx.playTrack(fname);
-      }
-      // special lighting effects
-      if (!strcmp(inputStr, spl1) || !strcmp(inputStr, spl2)) {
-        ultStrobe();
-      }
-      if (!strcmp(inputStr, angry)) {
-        goAngry();
-      }
+      playAnyType(inputStr);
+
       resetInputStr();
       cPtr = 0; // immediately ready for next
-
-#ifdef DEBUGGING
-      Serial.print(F("Requesting file: "));
-      Serial.println(fname);
-#endif
     }
   }
 }
 
 // SETUP
 void setup() {
-  yield(); // may reboot as programmer triggers reset
+// may reboot as programmer triggers reset
 // system initializations
 #ifdef DEBUGGING
   Serial.begin(SBAUD);
@@ -244,10 +278,11 @@ void setup() {
 #ifdef DEBUGGING
     Serial.println(F("NO SOUNDBOARD FOUND"));
 #endif
-  }
+  } else {
 #ifdef DEBUGGING
-  Serial.println(F("Soundboard Connected"));
+    Serial.println(F("Soundboard Connected"));
 #endif
+  }
 
   // object initializations
   pixelmem.begin();
@@ -262,8 +297,7 @@ void setup() {
 
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
-  pinMode(A7, INPUT);
-  randomSeed(micros() + analogRead(A7)); // use noise
+  pinMode(A7, INPUT); // entropic pin for srand
   resetInputStr();
 
   set_toli();
