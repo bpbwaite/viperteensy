@@ -5,7 +5,7 @@
 #include <Keypad.h>
 #include <SoftwareSerial.h>
 #include <WString.h>
-// todo: green ripples when running ultimate sound effect
+
 // unused pins:
 // D12
 // A1, A4 thru A6
@@ -44,6 +44,7 @@ static const uint16_t pain = 696;
 static const uint16_t angry = 777;
 static const uint16_t spl1 = 388;
 static const uint16_t spl2 = 393;
+static const uint16_t spl3 = 1;
 
 // LED STRIPS
 #define SMALL_L (19 * 3)       // number of lights in the small left strip
@@ -180,7 +181,7 @@ void playAnyType(uint16_t d) {
     Serial.println(fname);
 #endif
 
-    // future version: monitor activity LED to determine if writable
+    // future version: monitor activity pin to determine if writable
     if (!sfx.playTrack(fname)) {
       delay(102); // sometimes its not ready
       sfx.playTrack(fname);
@@ -225,7 +226,7 @@ void special_triggers(uint16_t d) {
   if (d == toggleLED)
     isLit = !isLit;
   // special lighting effects
-  if ((d == spl1) || (d == spl2))
+  if ((d == spl1) || (d == spl2) || (d == spl3))
     ultStrobe();
   if (d == angry)
     goAngry();
@@ -349,6 +350,9 @@ void loop() {
           SMALL_R);
     }
   }
+  // help illuminate the inside of the backpack with maximum brightness
+  pixelmem.setPixelColor(0, v_green);
+
   if (!isLit)
     pixelmem.clear();
   pixelmem.show(); // write to port
