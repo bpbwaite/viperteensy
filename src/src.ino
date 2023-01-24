@@ -28,8 +28,11 @@ const char keys[ROWS][COLS] = {{'1', '2', '3', 'A'},
                                {'4', '5', '6', 'B'},
                                {'7', '8', '9', 'C'},
                                {'*', '0', '#', 'D'}};
-byte rowPins[ROWS] = {9, 8, 7, 6};
-byte colPins[COLS] = {5, 4, 3, 2};
+// byte rowPins[ROWS] = {9, 8, 7, 6};
+// byte colPins[COLS] = {5, 4, 3, 2};
+byte rowPins[ROWS] = {3, 9, 7, 6};
+byte colPins[COLS] = {5, 2, 4, 8};
+
 Keypad kpd = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 static char k = NO_KEY;
 char inputStr[(ILEN + 1)];
