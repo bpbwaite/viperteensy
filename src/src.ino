@@ -12,7 +12,7 @@
 
 // SYSTEM DEFINITIONS
 
-#define DEBUGGING false
+// #define DEBUGGING true
 #define DEBUG_PUSH_RATE 1100 // T, ms
 #define SBAUD 115200
 #define SOFTWAREBAUD 9600
